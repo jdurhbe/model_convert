@@ -38,17 +38,23 @@ jobs:
           sudo apt update
           sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget protobuf-compiler libprotobuf-dev
 
-      - name: 安装RKNN转换依赖（含 torch）
+      - name: 安装所有Python依赖（完整版）
         run: |
           pip install --upgrade pip setuptools wheel
+          # 基础数值库
           pip install numpy
+          pip install scipy
+          # protobuf 和 onnx（预编译）
           pip install protobuf
           pip install onnx==1.13.1
+          # 图像处理
           pip install opencv-python
-          # 安装 CPU 版本的 torch（避免 GPU 驱动问题，同时减小体积）
+          # torch CPU版本（rknn内部依赖）
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install --no-deps rknn-toolkit2==2.3.2
+          # 其他工具
           pip install matplotlib tqdm
+          # rknn-toolkit2（跳过依赖，因为已手动满足）
+          pip install --no-deps rknn-toolkit2==2.3.2
 
       - name: 下载ONNX模型（请替换URL）
         run: |
