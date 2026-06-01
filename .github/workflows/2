@@ -1,0 +1,83 @@
+name: Convert Yolov8 Detect Models
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  onnx2rknn:                     # 原 pt2onnx 改为 onnx2rknn
+    strategy:
+      matrix:
+        runs-on: [ubuntu-22.04]
+    runs-on: ${{ matrix.runs-on }}
+    container:
+      image: kaylor/rk3588_onnx2rknn:2.3.2   # 使用 rknn 转换镜像
+      options: --privileged
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1000
+        fetch-tags: true
+
+    - name: Download ONNX model and convert to RKNN
+      run: |
+        # 创建工作目录
+        mkdir -pv yolo/rknn
+        cd yolo/rknn
+        
+        # 直接从 release 下载 ONNX 模型（需确保 URL 中存在该文件）
+        wget https://github.com/jdurhbe/model_convert/releases/download/onnx/yolo.onnx -O yolo.onnx
+        
+        # 执行 ONNX -> RKNN 转换（量化类型 i8，目标芯片 rk3588）
+        python  ../export_det_v11.pyc yolo.onnx rk3588 i8 yolo.rknn   # 请根据实际 convert.pyc 路径调整
+        
+        # 将 ONNX 文件也保留一份，供后续 om 转换使用
+        cp yolo.onnx ../onnx/
+        
+    - name: Upload artifacts (ONNX + RKNN)
+      uses: actions/upload-artifact@v4
+      with:
+        name: model_artifacts
+        path: |
+          yolo/onnx/*.onnx
+          yolo/rknn/*.rknn
+
+  onnx2om:
+    needs: [onnx2rknn]           # 依赖修改后的第一个 job
+    strategy:
+      matrix:
+        runs-on: [ubuntu-22.04]
+    runs-on: ${{ matrix.runs-on }}
+    container:
+      image: kaylor/atc
+      options: --privileged
+
+    steps:
+    - name: Download artifacts from onnx2rknn
+      uses: actions/download-artifact@v4
+      with:
+        name: model_artifacts
+        path: model_artifacts
+
+    - name: Run ATC conversion
+      shell: bash
+      run: |
+        mkdir -pv om
+        cp -v ${GITHUB_WORKSPACE}/model_artifacts/*.onnx ./om/
+        source /usr/local/Ascend/ascend-toolkit/set_env.sh
+        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib/:$LD_LIBRARY_PATH
+        cd om
+        atc --model=yolo.onnx --framework=5 --output=yolo --soc_version=Ascend310B4
+
+    - name: Upload OM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: om_artifacts
+        path: om/*.om
