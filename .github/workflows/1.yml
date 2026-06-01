@@ -10,8 +10,8 @@ env:
   RKNN_FILE_NAME: converted.rknn
   TARGET_CHIP: rk3588
   QUANTIZATION: fp16
-  INPUT_W: 256
-  INPUT_H: 256
+  INPUT_W: 416
+  INPUT_H: 416
   INPUT_MEAN: "0 0 0"
   INPUT_STD: "255 255 255"
   DATASET_TXT: ""
@@ -33,24 +33,26 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: 安装系统依赖
+      - name: 安装系统依赖（包含 protobuf 编译工具）
         run: |
           sudo apt update
-          sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget
+          sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget protobuf-compiler libprotobuf-dev
 
-      # ========== 关键修改：分步安装依赖解决冲突 ==========
-      - name: 安装RKNN转换依赖（分步解决冲突）
+      - name: 安装RKNN转换依赖（分步安装，避免构建 onnx）
         run: |
-          pip install --upgrade pip
-          
-          # 1. 单独安装 rknn-toolkit2，跳过依赖检查（这是关键）
+          pip install --upgrade pip setuptools wheel
+          # 1. 先安装 numpy（必须）
+          pip install numpy
+          # 2. 安装 protobuf 库（onnx 依赖）
+          pip install protobuf
+          # 3. 安装预编译的 onnx（避免从源码构建）
+          pip install onnx==1.13.1
+          # 4. 安装 opencv
+          pip install opencv-python
+          # 5. 安装 rknn-toolkit2（跳过依赖，因为主要依赖已手动安装）
           pip install --no-deps rknn-toolkit2==2.3.2
-          
-          # 2. 再手动安装经过验证的兼容版本
-          pip install numpy protobuf
-          pip install onnx==1.11.0
-          pip install opencv-python matplotlib scikit-image tqdm
-      # ==================================================
+          # 6. 可选：安装其他可能需要的库
+          pip install matplotlib tqdm
 
       - name: 下载ONNX模型（请替换URL）
         run: |
