@@ -11,7 +11,7 @@ env:
   # 转换核心参数（按需修改）
   TARGET_CHIP: rk3588                                       # 目标芯片：rk3588/rk3566/rk3568
   QUANTIZATION: fp16                                        # 量化方式：fp16/int8
-  INPUT_SIZE: 416 416                                       # 模型输入尺寸（宽 高）
+  INPUT_SIZE: 416 416                                      # 模型输入尺寸（宽 高）
 
 jobs:
   convert_rknn:
@@ -46,7 +46,7 @@ jobs:
       - name: 下载GitHub Releases中的ONNX模型（国内加速）
         run: |
           # ghproxy加速前缀，解决境外链接无法访问问题
-          wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx \
+          wget https://ghproxy.com/https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx \
             -O $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
           # 验证下载完整性（日志中会显示文件大小）
           echo "下载完成，文件信息："
