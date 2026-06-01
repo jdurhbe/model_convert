@@ -20,21 +20,10 @@ jobs:
   convert_rknn:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取仓库转换脚本
+      - name: 拉取仓库
         uses: actions/checkout@v4
 
-      - name: 列出仓库文件（调试）
-        run: |
-          echo "当前目录: $(pwd)"
-          ls -la
-          if [ -f rknn_convert.py ]; then
-            echo "✓ rknn_convert.py 存在"
-          else
-            echo "✗ rknn_convert.py 不存在"
-            exit 1
-          fi
-
-      - name: 初始化自定义目录
+      - name: 初始化目录
         run: |
           mkdir -p $ONNX_DOWNLOAD_DIR
           mkdir -p $RKNN_OUTPUT_DIR
@@ -49,7 +38,7 @@ jobs:
           sudo apt update
           sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget
 
-      - name: 安装RKNN转换依赖
+      - name: 安装RKNN-Toolkit2
         run: |
           pip install --upgrade pip
           pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -61,12 +50,18 @@ jobs:
             -O $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
           ls -lh $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
 
-      - name: 准备int8校准数据集
+      - name: 准备int8校准数据集（仅int8需要）
         if: env.QUANTIZATION == 'int8' && env.DATASET_TXT == ''
         run: |
+          echo "警告：未提供DATASET_TXT，生成占位文件，请替换为真实图片路径"
           echo "./placeholder.jpg" > ${{ github.workspace }}/dataset.txt
 
-      - name: 执行ONNX到RKNN转换
+      - name: 使用自定义dataset.txt
+        if: env.QUANTIZATION == 'int8' && env.DATASET_TXT != ''
+        run: |
+          cp $DATASET_TXT ${{ github.workspace }}/dataset.txt
+
+      - name: ONNX转RKNN
         run: |
           python rknn_convert.py \
             --onnx_path "$ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME" \
@@ -79,7 +74,7 @@ jobs:
             --input_std $INPUT_STD \
             ${DATASET_TXT:+--dataset ${{ github.workspace }}/dataset.txt}
 
-      - name: 上传最终RKNN模型
+      - name: 上传RKNN模型
         uses: actions/upload-artifact@v4
         with:
           name: rknn-converted-model
