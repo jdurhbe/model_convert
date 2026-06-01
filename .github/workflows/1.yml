@@ -4,20 +4,17 @@ on:
   workflow_dispatch:
 
 env:
-  # 统一自定义所有路径和文件名
   ONNX_DOWNLOAD_DIR: ${{ github.workspace }}/downloaded_onnx
   RKNN_OUTPUT_DIR: ${{ github.workspace }}/final_rknn
   ONNX_FILE_NAME: best.onnx
   RKNN_FILE_NAME: converted.rknn
-  # 转换核心参数（按需修改）
-  TARGET_CHIP: rk3588                # 可选：rk3588/rk3566/rk3568
-  QUANTIZATION: fp16                 # fp16 或 int8
-  INPUT_W: 256                       # 模型输入宽度
-  INPUT_H: 256                       # 模型输入高度
-  INPUT_MEAN: "0 0 0"               # 均值（空格分隔）
-  INPUT_STD: "255 255 255"          # 标准差（空格分隔）
-  # int8量化专用（仅当QUANTIZATION=int8时必须提供有效路径）
-  DATASET_TXT: ""                    # 校准图片列表文件路径（留空则生成占位文件）
+  TARGET_CHIP: rk3588
+  QUANTIZATION: fp16
+  INPUT_W: 416
+  INPUT_H: 416
+  INPUT_MEAN: "0 0 0"
+  INPUT_STD: "255 255 255"
+  DATASET_TXT: ""
 
 jobs:
   convert_rknn:
@@ -31,45 +28,38 @@ jobs:
           mkdir -p $ONNX_DOWNLOAD_DIR
           mkdir -p $RKNN_OUTPUT_DIR
 
-      - name: 配置Python 3.10（RKNN工具链强制要求）
+      - name: 配置Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          # 注意：已移除 cache: pip，避免因缺少 requirements.txt 报错
 
-      - name: 安装系统依赖（修复Ubuntu 24.04兼容性）
+      - name: 安装系统依赖
         run: |
           sudo apt update
-          # 原 libgl1-mesa-glx 在24.04中已废弃，改用 libgl1
           sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget
 
-      - name: 安装RKNN转换依赖
+      - name: 安装RKNN转换依赖（使用可用版本2.3.2）
         run: |
           pip install --upgrade pip
           pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
-            numpy opencv-python onnx rknn-toolkit2==1.6.0
+            numpy opencv-python onnx rknn-toolkit2==2.3.2
 
-      # ========== 下载ONNX模型（请替换URL）==========
-      - name: 下载GitHub Releases中的ONNX模型
+      - name: 下载ONNX模型（请替换URL）
         run: |
-          # 把下面的URL换成你的真实下载地址
           wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx \
             -O $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
-          echo "下载完成，文件信息："
           ls -lh $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
 
-      # ========== 准备int8校准数据集 ==========
-      - name: 准备int8校准数据集（占位）
+      - name: 准备int8校准数据集
         if: env.QUANTIZATION == 'int8' && env.DATASET_TXT == ''
         run: |
-          echo "警告：未提供DATASET_TXT，将生成占位文件，int8量化需要真实图片路径！"
+          echo "警告：未提供DATASET_TXT，生成占位文件（int8量化需要真实图片）"
           echo "./placeholder.jpg" > ${{ github.workspace }}/dataset.txt
       - name: 使用自定义dataset.txt
         if: env.QUANTIZATION == 'int8' && env.DATASET_TXT != ''
         run: |
           cp $DATASET_TXT ${{ github.workspace }}/dataset.txt
 
-      # ========== 执行ONNX到RKNN转换 ==========
       - name: 执行ONNX到RKNN转换
         run: |
           python rknn_convert.py \
