@@ -1,50 +1,72 @@
-name: ONNX to RKNN Converter
+name: 自动下载ONNX转RKNN（纯转换）
 on:
-  workflow_dispatch: # 只保留手动触发，避免误操作
-  # push:
-  #   branches: [ master ] # 需要推送自动转换就取消注释
+  workflow_dispatch:
+
+env:
+  # 统一自定义所有路径和文件名（改这里即可全局生效）
+  ONNX_DOWNLOAD_DIR: ${{ github.workspace }}/downloaded_onnx  # ONNX下载目录
+  RKNN_OUTPUT_DIR: ${{ github.workspace }}/final_rknn       # RKNN输出目录
+  ONNX_FILE_NAME: best.onnx                                 # 下载后ONNX文件名
+  RKNN_FILE_NAME: converted.rknn                            # 生成的RKNN文件名
+  # 转换核心参数（按需修改）
+  TARGET_CHIP: rk3588                                       # 目标芯片：rk3588/rk3566/rk3568
+  QUANTIZATION: fp16                                        # 量化方式：fp16/int8
+  INPUT_SIZE: 640 640                                       # 模型输入尺寸（宽 高）
 
 jobs:
   convert_rknn:
     runs-on: ubuntu-latest
     steps:
-      - name: 拉取仓库代码
+      - name: 拉取仓库转换脚本
         uses: actions/checkout@v4
+
+      - name: 初始化自定义目录
+        run: |
+          mkdir -p $ONNX_DOWNLOAD_DIR
+          mkdir -p $RKNN_OUTPUT_DIR
 
       - name: 配置Python 3.10（RKNN工具链强制要求）
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-          cache: "pip"
+          cache: pip
 
       - name: 安装系统依赖
         run: |
           sudo apt update
-          sudo apt install -y libgl1-mesa-glx libglib2.0-0 gcc g++
+          sudo apt install -y libgl1-mesa-glx libglib2.0-0 gcc g++ wget
 
-      - name: 安装转换依赖（含RKNN-Toolkit2）
+      - name: 安装RKNN转换依赖（仅转换所需，无多余包）
         run: |
-          python -m pip install --upgrade pip
-          # 清华源加速，解决国外下载慢问题
+          pip install --upgrade pip
           pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
-            numpy opencv-python pillow onnx onnxruntime \
-            rknn-toolkit2==1.6.0 # 对应RK3588最新工具链，RK3566用1.5.2
+            numpy opencv-python onnx rknn-toolkit2==1.6.0
 
-      - name: 🔴 执行ONNX转RKNN（修改这里的参数）
+      # ========== 核心：自动下载ONNX模型到自定义路径 ==========
+      - name: 下载GitHub Releases中的ONNX模型（国内加速）
+        run: |
+          # ghproxy加速前缀，解决境外链接无法访问问题
+          wget https://ghproxy.com/https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx \
+            -O $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
+          # 验证下载完整性（日志中会显示文件大小）
+          echo "下载完成，文件信息："
+          ls -lh $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
+
+      # ========== 纯ONNX转RKNN ==========
+      - name: 执行ONNX到RKNN转换
         run: |
           python rknn_convert.py \
-            --onnx_path=./onnx_model/yolov8s_custom.onnx \ # 改成你的ONNX文件名
-            --rknn_path=./rknn_model/yolov8s_custom.rknn \ # 输出的RKNN文件名
-            --target_platform=rk3588 \ # 改成你的芯片：rk3588/rk3566/rk3568
-            --quantization=fp16 \ # 量化方式：fp16（无需校准）/int8（需要校准集）
-            --input_size=640 640 \ # 模型输入尺寸（宽 高）
-            --input_mean=0 0 0 \ # YOLO系列默认均值
-            --input_std=255 255 255 \ # YOLO系列默认标准差
-            --output_dir=./rknn_model/
+            --onnx_path $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME \
+            --rknn_path $RKNN_OUTPUT_DIR/$RKNN_FILE_NAME \
+            --target_platform $TARGET_CHIP \
+            --quantization $QUANTIZATION \
+            --input_size $INPUT_SIZE \
+            --input_mean 0 0 0 \
+            --input_std 255 255 255
 
-      - name: 上传生成的RKNN模型
+      - name: 上传最终RKNN模型
         uses: actions/upload-artifact@v4
         with:
           name: rknn-converted-model
-          path: ./rknn_model/
-          retention-days: 30 # 模型保留30天，足够下载
+          path: ${{ env.RKNN_OUTPUT_DIR }}
+          retention-days: 30
