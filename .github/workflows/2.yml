@@ -1,4 +1,4 @@
-name: 自动下载ONNX转RKNN2
+name: 自动下载ONNX转RKNN
 
 on:
   workflow_dispatch:
