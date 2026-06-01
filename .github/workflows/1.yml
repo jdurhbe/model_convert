@@ -87,7 +87,7 @@ jobs:
             ${DATASET_TXT:+--dataset ${{ github.workspace }}/dataset.txt}
 
       - name: 上传RKNN模型
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rknn-converted-model
           path: ${{ env.RKNN_OUTPUT_DIR }}
