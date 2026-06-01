@@ -33,7 +33,7 @@ jobs:
         cd yolo/rknn
         
         # 直接从 release 下载 ONNX 模型（需确保 URL 中存在该文件）
-        wget https://github.com/jdurhbe/model_convert/releases/download/onnx/yolo.onnx -O yolo.onnx
+        wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx -O yolo.onnx
         
         # 执行 ONNX -> RKNN 转换（量化类型 i8，目标芯片 rk3588）
         python  ../export_det_v11.pyc yolo.onnx rk3588 i8 yolo.rknn   # 请根据实际 convert.pyc 路径调整
