@@ -38,11 +38,11 @@ jobs:
           sudo apt update
           sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget
 
-      - name: 安装RKNN-Toolkit2
+      - name: 安装RKNN转换依赖（固定onnx版本）
         run: |
           pip install --upgrade pip
           pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
-            numpy opencv-python onnx rknn-toolkit2==2.3.2
+            numpy opencv-python onnx==1.14.0 rknn-toolkit2==2.3.2
 
       - name: 下载ONNX模型（请替换URL）
         run: |
