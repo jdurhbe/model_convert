@@ -38,7 +38,7 @@ jobs:
           sudo apt update
           sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget protobuf-compiler libprotobuf-dev
 
-      - name: 安装所有Python依赖（完整版）
+      - name: 安装所有Python依赖（完整版，含onnxruntime）
         run: |
           pip install --upgrade pip setuptools wheel
           pip install numpy
@@ -50,6 +50,11 @@ jobs:
           pip install onnxruntime
           pip install matplotlib tqdm
           pip install --no-deps rknn-toolkit2==2.3.2
+
+      - name: 验证关键模块是否可用
+        run: |
+          python -c "import numpy, scipy, onnx, cv2, torch, onnxruntime; print('所有基础模块导入成功')"
+          python -c "from rknn.api import RKNN; print('RKNN导入成功')"
 
       - name: 下载ONNX模型（请替换URL）
         run: |
