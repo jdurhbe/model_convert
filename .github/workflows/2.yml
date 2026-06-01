@@ -36,7 +36,7 @@ jobs:
         wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx -O yolo.onnx
         
         # 执行 ONNX -> RKNN 转换（量化类型 i8，目标芯片 rk3588）
-        python  ../export_det_v11.pyc yolo.onnx rk3588 i8 yolo.rknn   # 请根据实际 convert.pyc 路径调整
+        python  ../export_det_v11.pyc yolo.onnx rk3588 fp16 yolo.rknn   # 请根据实际 convert.pyc 路径调整
         
         # 将 ONNX 文件也保留一份，供后续 om 转换使用
         cp yolo.onnx ../onnx/
