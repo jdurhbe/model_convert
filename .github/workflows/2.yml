@@ -1,3 +1,15 @@
+name: Convert Yolov8 Detect Models
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
   onnx2rknn:
     strategy:
       matrix:
@@ -18,22 +30,22 @@
       run: |
         # 安装 wget
         apt-get update && apt-get install -y wget
-        
+
         # 创建目录
         mkdir -pv yolo/rknn
-        
+
         # 下载 ONNX 模型
-        wget https://github.com/jdurhbe/model_convert/releases/download/onnx/yolo.onnx -O yolo/rknn/yolo.onnx
-        
+        wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx -O yolo/rknn/yolo.onnx
+
         # 进入 yolo 目录执行转换（假设 convert.pyc 位于仓库根目录的 yolo/ 下）
         cd yolo
-        python convert.pyc rknn/yolo.onnx rk3588 i8 rknn/yolo.rknn
-        
+        python ../export_det_v11.pyc rknn/yolo.onnx rk3588 i8 rknn/yolo.rknn
+
         # 复制 ONNX 文件供后续 om 使用
         cd ..
         mkdir -p yolo/onnx
         cp yolo/rknn/yolo.onnx yolo/onnx/
-        
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -41,3 +53,36 @@
         path: |
           yolo/onnx/*.onnx
           yolo/rknn/*.rknn
+
+  onnx2om:
+    needs: [onnx2rknn]
+    strategy:
+      matrix:
+        runs-on: [ubuntu-22.04]
+    runs-on: ${{ matrix.runs-on }}
+    container:
+      image: kaylor/atc
+      options: --privileged
+
+    steps:
+    - name: Download artifacts from onnx2rknn
+      uses: actions/download-artifact@v4
+      with:
+        name: model_artifacts
+        path: model_artifacts
+
+    - name: Run ATC conversion
+      shell: bash
+      run: |
+        mkdir -pv om
+        cp -v ${GITHUB_WORKSPACE}/model_artifacts/*.onnx ./om/
+        source /usr/local/Ascend/ascend-toolkit/set_env.sh
+        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib/:$LD_LIBRARY_PATH
+        cd om
+        atc --model=yolo.onnx --framework=5 --output=yolo --soc_version=Ascend310B4
+
+    - name: Upload OM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: om_artifacts
+        path: om/*.om
