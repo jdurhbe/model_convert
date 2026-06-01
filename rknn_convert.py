@@ -12,8 +12,10 @@ def parse_args():
     parser.add_argument("--quantization", required=True, choices=["fp16", "int8"])
     parser.add_argument("--input_w", type=int, required=True)
     parser.add_argument("--input_h", type=int, required=True)
-    parser.add_argument("--input_mean", nargs="+", type=float, default=[0, 0, 0])
-    parser.add_argument("--input_std", nargs="+", type=float, default=[255, 255, 255])
+    parser.add_argument("--input_mean", nargs="+", type=float, default=[0, 0, 0],
+                        help="均值，如 0 0 0")
+    parser.add_argument("--input_std", nargs="+", type=float, default=[255, 255, 255],
+                        help="标准差，如 255 255 255")
     parser.add_argument("--dataset", help="int8校准数据集文件")
     return parser.parse_args()
 
@@ -23,10 +25,14 @@ def main():
         print("错误：int8量化必须提供--dataset")
         sys.exit(1)
 
+    # 确保均值/标准差是浮点数列表，并包装成 RKNN 需要的格式
+    mean = list(args.input_mean)
+    std = list(args.input_std)
+
     rknn = RKNN()
     ret = rknn.config(
-        mean_values=[[args.input_mean]],
-        std_values=[[args.input_std]],
+        mean_values=[mean],   # 单输入模型：[[r,g,b]]
+        std_values=[std],
         target_platform=args.target_platform
     )
     if ret != 0:
