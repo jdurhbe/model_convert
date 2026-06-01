@@ -11,7 +11,7 @@ env:
   # 转换核心参数（按需修改）
   TARGET_CHIP: rk3588                                       # 目标芯片：rk3588/rk3566/rk3568
   QUANTIZATION: fp16                                        # 量化方式：fp16/int8
-  INPUT_SIZE: 640 640                                       # 模型输入尺寸（宽 高）
+  INPUT_SIZE: 416 416                                       # 模型输入尺寸（宽 高）
 
 jobs:
   convert_rknn:
