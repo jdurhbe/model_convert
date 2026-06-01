@@ -38,7 +38,7 @@ jobs:
         python ../export_pose_v11.pyc -w yolo.pt --sim
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: onnx_artifacts
         path: yolo/onnx/*.onnx
@@ -76,7 +76,7 @@ jobs:
 
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: rknn_artifacts
         path: yolo/rknn/*.rknn
@@ -111,7 +111,7 @@ jobs:
 
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: om_artifacts
         path: om/*.om
