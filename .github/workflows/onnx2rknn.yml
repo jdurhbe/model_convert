@@ -1,37 +1,40 @@
-name: ONNX to RKNN RK3588
+name: ONNX to RKNN (from URL)
 
 on:
   workflow_dispatch:
+    inputs:
+      onnx_url:
+        description: '下载 ONNX 文件的直链地址 (URL)'
+        required: true
+        default: 'https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx'
+      rknn_output:
+        description: '输出的 RKNN 文件名'
+        required: false
+        default: 'yolo.rknn'
 
 jobs:
-
-  convert:
-
-    runs-on: ubuntu-latest
-
+  onnx2rknn:
+    runs-on: ubuntu-22.04
     container:
       image: kaylor/rk3588_onnx2rknn:2.3.2
+      options: --privileged
 
     steps:
-
-      - name: Checkout
+      - name: Checkout repository (提供转换脚本)
         uses: actions/checkout@v4
 
-      - name: Show files
+      - name: Download ONNX from URL
         run: |
-          pwd
-          ls -al
+          mkdir -p rknn
+          wget -O rknn/input.onnx "${{ github.event.inputs.onnx_url }}"
 
-      - name: Convert ONNX -> RKNN
+      - name: Convert ONNX to RKNN
         run: |
-          python convert.py
+          cd rknn
+          python ../yolo/convert.pyc input.onnx rk3588 i8 "${{ github.event.inputs.rknn_output }}"
 
-      - name: Check output
-        run: |
-          ls -al
-
-      - name: Upload RKNN
+      - name: Upload RKNN artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rknn_model
-          path: best.rknn
+          name: rknn-model
+          path: rknn/${{ github.event.inputs.rknn_output }}
