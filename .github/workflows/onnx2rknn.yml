@@ -1,0 +1,37 @@
+name: ONNX to RKNN RK3588
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  convert:
+
+    runs-on: ubuntu-latest
+
+    container:
+      image: kaylor/rk3588_onnx2rknn:2.3.2
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show files
+        run: |
+          pwd
+          ls -al
+
+      - name: Convert ONNX -> RKNN
+        run: |
+          python convert.py
+
+      - name: Check output
+        run: |
+          ls -al
+
+      - name: Upload RKNN
+        uses: actions/upload-artifact@v4
+        with:
+          name: rknn_model
+          path: best.rknn
