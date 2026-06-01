@@ -1,88 +1,170 @@
-name: Convert Yolov8 Detect Models
+name: 自动下载ONNX转RKNN2
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
+
+env:
+  ONNX_DOWNLOAD_DIR: ${{ github.workspace }}/downloaded_onnx
+  RKNN_OUTPUT_DIR: ${{ github.workspace }}/final_rknn
+
+  ONNX_FILE_NAME: best.onnx
+  RKNN_FILE_NAME: converted.rknn
+
+  TARGET_CHIP: rk3588
+  QUANTIZATION: fp16
+
+  INPUT_W: 416
+  INPUT_H: 416
+
+  INPUT_MEAN: "0 0 0"
+  INPUT_STD: "255 255 255"
+
+  # INT8量化时使用
+  DATASET_TXT: ""
 
 jobs:
-  onnx2rknn:
-    strategy:
-      matrix:
-        runs-on: [ubuntu-22.04]
-    runs-on: ${{ matrix.runs-on }}
-    container:
-      image: kaylor/rk3588_onnx2rknn:2.3.2
-      options: --privileged
+  convert_rknn:
+
+    runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 1000
-        fetch-tags: true
 
-    - name: Install wget and convert
-      run: |
-        # 安装 wget
-        apt-get update && apt-get install -y wget
+      - name: Checkout
+        uses: actions/checkout@v4
 
-        # 创建目录
-        mkdir -pv yolo/rknn
+      - name: Prepare Workspace
+        run: |
+          mkdir -p "$ONNX_DOWNLOAD_DIR"
+          mkdir -p "$RKNN_OUTPUT_DIR"
 
-        # 下载 ONNX 模型
-        wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx -O yolo/rknn/yolo.onnx
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-        # 进入 yolo 目录执行转换（假设 convert.pyc 位于仓库根目录的 yolo/ 下）
-        cd yolo
-        python ../export_det_v11.pyc rknn/yolo.onnx rk3588 i8 rknn/yolo.rknn
+      # 避免每次重新下载全部依赖
+      - name: Cache Pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-rknn-v1
 
-        # 复制 ONNX 文件供后续 om 使用
-        cd ..
-        mkdir -p yolo/onnx
-        cp yolo/rknn/yolo.onnx yolo/onnx/
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: model_artifacts
-        path: |
-          yolo/onnx/*.onnx
-          yolo/rknn/*.rknn
+          sudo apt-get install -y \
+            gcc \
+            g++ \
+            wget \
+            libgl1 \
+            libglib2.0-0 \
+            protobuf-compiler \
+            libprotobuf-dev
 
-  onnx2om:
-    needs: [onnx2rknn]
-    strategy:
-      matrix:
-        runs-on: [ubuntu-22.04]
-    runs-on: ${{ matrix.runs-on }}
-    container:
-      image: kaylor/atc
-      options: --privileged
+      - name: Install Python Dependencies
+        run: |
 
-    steps:
-    - name: Download artifacts from onnx2rknn
-      uses: actions/download-artifact@v4
-      with:
-        name: model_artifacts
-        path: model_artifacts
+          python -m pip install \
+            --upgrade \
+            pip \
+            setuptools \
+            wheel
 
-    - name: Run ATC conversion
-      shell: bash
-      run: |
-        mkdir -pv om
-        cp -v ${GITHUB_WORKSPACE}/model_artifacts/*.onnx ./om/
-        source /usr/local/Ascend/ascend-toolkit/set_env.sh
-        export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/x86_64-linux/devlib/:$LD_LIBRARY_PATH
-        cd om
-        atc --model=yolo.onnx --framework=5 --output=yolo --soc_version=Ascend310B4
+          # RKNN兼容性较好的版本组合
+          pip install \
+            numpy==1.23.5 \
+            scipy==1.10.1 \
+            protobuf==3.20.3 \
+            onnx==1.13.1 \
+            opencv-python \
+            matplotlib \
+            tqdm
 
-    - name: Upload OM artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: om_artifacts
-        path: om/*.om
+          pip install \
+            --no-deps \
+            rknn-toolkit2==2.3.2
+
+      - name: Verify Environment
+        run: |
+
+          python -c "
+import numpy
+import scipy
+import onnx
+import cv2
+print('基础依赖检查通过')
+"
+
+          python -c "
+from rknn.api import RKNN
+print('RKNN Toolkit检查通过')
+"
+
+      - name: Download ONNX
+        run: |
+
+          wget \
+            https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx \
+            -O "$ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME"
+
+          echo "Downloaded ONNX:"
+
+          ls -lh \
+            "$ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME"
+
+      # INT8模式必须提供真实校准集
+      - name: Validate Dataset
+        if: env.QUANTIZATION == 'int8'
+        run: |
+
+          if [ -z "$DATASET_TXT" ]; then
+            echo "ERROR: INT8量化必须提供DATASET_TXT"
+            exit 1
+          fi
+
+          if [ ! -f "$DATASET_TXT" ]; then
+            echo "ERROR: Dataset文件不存在"
+            exit 1
+          fi
+
+          cp "$DATASET_TXT" \
+            "${{ github.workspace }}/dataset.txt"
+
+      - name: Convert RKNN
+        run: |
+
+          EXTRA_ARGS=""
+
+          if [ "$QUANTIZATION" = "int8" ]; then
+            EXTRA_ARGS="--dataset ${{ github.workspace }}/dataset.txt"
+          fi
+
+          python rknn_convert.py \
+            --onnx_path "$ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME" \
+            --rknn_path "$RKNN_OUTPUT_DIR/$RKNN_FILE_NAME" \
+            --target_platform "$TARGET_CHIP" \
+            --quantization "$QUANTIZATION" \
+            --input_w "$INPUT_W" \
+            --input_h "$INPUT_H" \
+            --input_mean $INPUT_MEAN \
+            --input_std $INPUT_STD \
+            $EXTRA_ARGS
+
+      - name: Verify Output
+        run: |
+
+          if [ ! -f "$RKNN_OUTPUT_DIR/$RKNN_FILE_NAME" ]; then
+            echo "ERROR: RKNN导出失败"
+            exit 1
+          fi
+
+          ls -lh "$RKNN_OUTPUT_DIR"
+
+      # 供后续Release或部署流程使用
+      - name: Upload RKNN Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rknn-converted-model
+          path: ${{ env.RKNN_OUTPUT_DIR }}
+          retention-days: 30
