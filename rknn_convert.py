@@ -25,13 +25,12 @@ def main():
         print("错误：int8量化必须提供--dataset")
         sys.exit(1)
 
-    # 确保均值/标准差是浮点数列表，并包装成 RKNN 需要的格式
     mean = list(args.input_mean)
     std = list(args.input_std)
 
     rknn = RKNN()
     ret = rknn.config(
-        mean_values=[mean],   # 单输入模型：[[r,g,b]]
+        mean_values=[mean],
         std_values=[std],
         target_platform=args.target_platform
     )
