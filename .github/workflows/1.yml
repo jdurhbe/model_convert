@@ -1,7 +1,20 @@
-name: 自动下载ONNX转RKNN（纯转换）
+name: 自动下载 ONNX 并转换为 RKNN（优化版）
 
 on:
   workflow_dispatch:
+    inputs:
+      quantization:
+        description: "量化类型：fp16 或 int8"
+        required: false
+        default: fp16
+      model_url:
+        description: "ONNX 模型下载地址"
+        required: false
+        default: https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx
+      dataset_txt:
+        description: "INT8 校准集 txt 路径（仓库内相对路径，留空则不传）"
+        required: false
+        default: ""
 
 env:
   ONNX_DOWNLOAD_DIR: ${{ github.workspace }}/downloaded_onnx
@@ -9,84 +22,106 @@ env:
   ONNX_FILE_NAME: best.onnx
   RKNN_FILE_NAME: converted.rknn
   TARGET_CHIP: rk3588
-  QUANTIZATION: fp16
   INPUT_W: 416
   INPUT_H: 416
   INPUT_MEAN: "0 0 0"
   INPUT_STD: "255 255 255"
-  DATASET_TXT: ""
 
 jobs:
   convert_rknn:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
     steps:
       - name: 拉取仓库
         uses: actions/checkout@v4
 
-      - name: 初始化目录
-        run: |
-          mkdir -p $ONNX_DOWNLOAD_DIR
-          mkdir -p $RKNN_OUTPUT_DIR
-
-      - name: 配置Python 3.10
+      - name: 配置 Python 3.10（带 pip 缓存）
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+          cache: pip
 
       - name: 安装系统依赖
         run: |
-          sudo apt update
-          sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget protobuf-compiler libprotobuf-dev
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libglib2.0-0 gcc g++ wget protobuf-compiler libprotobuf-dev
+          sudo rm -rf /var/lib/apt/lists/*
 
-      - name: 安装所有Python依赖（完整版，含onnxruntime）
+      - name: 创建输出目录
         run: |
-          pip install --upgrade pip setuptools wheel
-          pip install numpy
-          pip install scipy
-          pip install protobuf
-          pip install onnx==1.13.1
-          pip install opencv-python
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install onnxruntime
-          pip install matplotlib tqdm
-          pip install --no-deps rknn-toolkit2==2.3.2
+          set -euo pipefail
+          mkdir -p "${ONNX_DOWNLOAD_DIR}" "${RKNN_OUTPUT_DIR}"
 
-      - name: 验证关键模块是否可用
+      - name: 安装 Python 依赖
         run: |
-          python -c "import numpy, scipy, onnx, cv2, torch, onnxruntime; print('所有基础模块导入成功')"
-          python -c "from rknn.api import RKNN; print('RKNN导入成功')"
+          set -euo pipefail
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install numpy scipy protobuf onnx==1.13.1 opencv-python onnxruntime matplotlib tqdm
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-deps rknn-toolkit2==2.3.2
 
-      - name: 下载ONNX模型（请替换URL）
+      - name: 验证依赖是否可导入
         run: |
-          wget https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx \
-            -O $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
-          ls -lh $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
+          set -euo pipefail
+          python - <<'PY'
+          import numpy, scipy, onnx, cv2, torch, onnxruntime
+          from rknn.api import RKNN
+          print("依赖导入成功")
+          PY
 
-      - name: 准备int8校准数据集（仅int8需要）
-        if: env.QUANTIZATION == 'int8' && env.DATASET_TXT == ''
+      - name: 下载 ONNX 模型
+        env:
+          MODEL_URL: ${{ inputs.model_url }}
         run: |
-          echo "警告：未提供DATASET_TXT，生成占位文件，请替换为真实图片路径"
-          echo "./placeholder.jpg" > ${{ github.workspace }}/dataset.txt
+          set -euo pipefail
+          wget -O "${ONNX_DOWNLOAD_DIR}/${ONNX_FILE_NAME}" "${MODEL_URL}"
+          ls -lh "${ONNX_DOWNLOAD_DIR}/${ONNX_FILE_NAME}"
 
-      - name: 使用自定义dataset.txt
-        if: env.QUANTIZATION == 'int8' && env.DATASET_TXT != ''
+      - name: 准备 INT8 校准文件
+        if: inputs.quantization == 'int8'
         run: |
-          cp $DATASET_TXT ${{ github.workspace }}/dataset.txt
+          set -euo pipefail
+          DATASET_FILE="${GITHUB_WORKSPACE}/dataset.txt"
 
-      - name: ONNX转RKNN
+          # INT8 必须提供真实图片路径列表；
+          # 这里生成占位文件只是为了让流程完整跑起来，但真正转换时通常会失败，
+          # 所以你需要把它替换成有效的图片路径列表。
+          if [[ -n "${{ inputs.dataset_txt }}" ]]; then
+            cp "${{ inputs.dataset_txt }}" "${DATASET_FILE}"
+          else
+            echo "./placeholder.jpg" > "${DATASET_FILE}"
+            echo "未提供 dataset.txt，已生成占位文件：${DATASET_FILE}"
+          fi
+
+      - name: ONNX 转 RKNN
         run: |
-          python rknn_convert.py \
-            --onnx_path "$ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME" \
-            --rknn_path "$RKNN_OUTPUT_DIR/$RKNN_FILE_NAME" \
-            --target_platform "$TARGET_CHIP" \
-            --quantization "$QUANTIZATION" \
-            --input_w "$INPUT_W" \
-            --input_h "$INPUT_H" \
-            --input_mean $INPUT_MEAN \
-            --input_std $INPUT_STD \
-            ${DATASET_TXT:+--dataset ${{ github.workspace }}/dataset.txt}
+          set -euo pipefail
 
-      - name: 上传RKNN模型
+          CMD=(
+            python rknn_convert.py
+            --onnx_path "${ONNX_DOWNLOAD_DIR}/${ONNX_FILE_NAME}"
+            --rknn_path "${RKNN_OUTPUT_DIR}/${RKNN_FILE_NAME}"
+            --target_platform "${TARGET_CHIP}"
+            --quantization "${{ inputs.quantization }}"
+            --input_w "${INPUT_W}"
+            --input_h "${INPUT_H}"
+            --input_mean "${INPUT_MEAN}"
+            --input_std "${INPUT_STD}"
+          )
+
+          # 只有 INT8 才传 dataset 参数，避免 fp16 下传入无效参数
+          if [[ "${{ inputs.quantization }}" == "int8" ]]; then
+            CMD+=(--dataset "${GITHUB_WORKSPACE}/dataset.txt")
+          fi
+
+          "${CMD[@]}"
+
+      - name: 上传 RKNN 模型
         uses: actions/upload-artifact@v4
         with:
           name: rknn-converted-model
