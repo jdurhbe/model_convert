@@ -10,8 +10,8 @@ env:
   RKNN_FILE_NAME: converted.rknn
   TARGET_CHIP: rk3588
   QUANTIZATION: fp16
-  INPUT_W: 256
-  INPUT_H: 256
+  INPUT_W: 416
+  INPUT_H: 416
   INPUT_MEAN: "0 0 0"
   INPUT_STD: "255 255 255"
   DATASET_TXT: ""
@@ -41,19 +41,14 @@ jobs:
       - name: 安装所有Python依赖（完整版）
         run: |
           pip install --upgrade pip setuptools wheel
-          # 基础数值库
           pip install numpy
           pip install scipy
-          # protobuf 和 onnx（预编译）
           pip install protobuf
           pip install onnx==1.13.1
-          # 图像处理
           pip install opencv-python
-          # torch CPU版本（rknn内部依赖）
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          # 其他工具
+          pip install onnxruntime
           pip install matplotlib tqdm
-          # rknn-toolkit2（跳过依赖，因为已手动满足）
           pip install --no-deps rknn-toolkit2==2.3.2
 
       - name: 下载ONNX模型（请替换URL）
