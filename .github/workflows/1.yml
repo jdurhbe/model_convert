@@ -6,7 +6,7 @@ on:
       onnx_url:
         description: ONNX 模型下载地址
         required: true
-        default: https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx
+        default: https://github.com/jdurhbe/model_convert/releases/download/onnx/20260406_v8s_416.onnx
       onnx_file_name:
         description: 下载后的 ONNX 文件名
         required: true
