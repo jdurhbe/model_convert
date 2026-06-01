@@ -1,121 +1,156 @@
 name: 自动下载ONNX转RKNN（纯转换）
 
 on:
-workflow_dispatch:
+  workflow_dispatch:
+    inputs:
+      onnx_url:
+        description: ONNX 模型下载地址
+        required: true
+        default: https://github.com/jdurhbe/model_convert/releases/download/onnx/best.onnx
+      onnx_file_name:
+        description: 下载后的 ONNX 文件名
+        required: true
+        default: best.onnx
+      rknn_file_name:
+        description: 输出 RKNN 文件名
+        required: true
+        default: converted.rknn
+      target_chip:
+        description: 目标芯片
+        required: true
+        default: rk3588
+        type: choice
+        options:
+          - rk3588
+          - rk3566
+          - rk3568
+          - rv1103
+          - rv1106
+      quantization:
+        description: 量化模式
+        required: true
+        default: fp16
+        type: choice
+        options:
+          - fp16
+          - int8
+      input_w:
+        description: 输入宽度
+        required: true
+        default: "416"
+      input_h:
+        description: 输入高度
+        required: true
+        default: "416"
+      input_mean:
+        description: 输入均值，三个数字用空格分隔
+        required: true
+        default: "0 0 0"
+      input_std:
+        description: 输入标准差，三个数字用空格分隔
+        required: true
+        default: "255 255 255"
+      dataset_txt:
+        description: int8 校准集 txt 路径（仓库内相对路径或留空）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
 
 env:
-ONNX_DOWNLOAD_DIR: ${{ github.workspace }}/downloaded_onnx
-RKNN_OUTPUT_DIR: ${{ github.workspace }}/final_rknn
-ONNX_FILE_NAME: best.onnx
-RKNN_FILE_NAME: converted.rknn
-TARGET_CHIP: rk3588
-INPUT_W: 416
-INPUT_H: 416
-INPUT_MEAN: "0 0 0"
-INPUT_STD: "255 255 255"
+  ONNX_DOWNLOAD_DIR: ${{ github.workspace }}/downloaded_onnx
+  RKNN_OUTPUT_DIR: ${{ github.workspace }}/final_rknn
 
 jobs:
-convert:
-runs-on: ubuntu-22.04
+  convert_rknn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
-```
-steps:
-  - name: 拉取代码
-    uses: actions/checkout@v4
+    steps:
+      - name: 拉取仓库
+        uses: actions/checkout@v4
 
-  # 注意：
-  # 删除 cache: pip
-  # 否则仓库没有 requirements.txt 会报错
-  - name: 安装 Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: "3.10"
+      - name: 配置 Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-  - name: 显示 Python 版本
-    run: |
-      python --version
-      pip --version
+      - name: 安装系统依赖
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0 gcc g++ curl protobuf-compiler libprotobuf-dev
 
-  - name: 创建目录
-    run: |
-      mkdir -p "${ONNX_DOWNLOAD_DIR}"
-      mkdir -p "${RKNN_OUTPUT_DIR}"
+      - name: 安装 Python 依赖
+        run: |
+          set -euxo pipefail
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install numpy scipy protobuf onnx==1.13.1 opencv-python onnxruntime matplotlib tqdm
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-deps rknn-toolkit2==2.3.2
 
-  - name: 安装系统依赖
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y \
-        wget \
-        git \
-        libglib2.0-0 \
-        libsm6 \
-        libxrender1 \
-        libxext6 \
-        libgl1
+      - name: 验证关键模块
+        run: |
+          set -euxo pipefail
+          python -c "import numpy, scipy, onnx, cv2, torch, onnxruntime; print('基础模块导入成功')"
+          python -c "from rknn.api import RKNN; print('RKNN 导入成功')"
 
-  - name: 安装 Python 依赖
-    run: |
-      python -m pip install --upgrade pip
+      - name: 初始化输出目录
+        run: |
+          set -euxo pipefail
+          mkdir -p "${ONNX_DOWNLOAD_DIR}"
+          mkdir -p "${RKNN_OUTPUT_DIR}"
 
-      pip install \
-        numpy \
-        scipy \
-        protobuf \
-        onnx==1.13.1 \
-        onnxruntime \
-        opencv-python \
-        matplotlib \
-        tqdm
+      - name: 下载 ONNX 模型
+        run: |
+          set -euxo pipefail
+          curl -L --retry 3 --retry-delay 2 \
+            "${{ github.event.inputs.onnx_url }}" \
+            -o "${ONNX_DOWNLOAD_DIR}/${{ github.event.inputs.onnx_file_name }}"
+          ls -lh "${ONNX_DOWNLOAD_DIR}/${{ github.event.inputs.onnx_file_name }}"
 
-  - name: 下载 ONNX
-    run: |
-      wget \
-        -O "${ONNX_DOWNLOAD_DIR}/${ONNX_FILE_NAME}" \
-        "https://github.com/jdurhbe/model_convert/releases/download/onnx/SF_v11s_501_640.onnx"
+      - name: 准备 int8 校准数据集
+        if: ${{ github.event.inputs.quantization == 'int8' }}
+        run: |
+          set -euxo pipefail
 
-  - name: 检查模型
-    run: |
-      ls -lh "${ONNX_DOWNLOAD_DIR}"
+          if [[ -z "${{ github.event.inputs.dataset_txt }}" ]]; then
+            echo "未提供 dataset_txt，int8 量化需要真实校准数据集。"
+            exit 1
+          fi
 
-  - name: 输出 ONNX 信息
-    run: |
-      python - << EOF
-      import onnx
+          cp "${{ github.event.inputs.dataset_txt }}" "${{ github.workspace }}/dataset.txt"
+          test -s "${{ github.workspace }}/dataset.txt"
 
-      model = onnx.load("${ONNX_DOWNLOAD_DIR}/${ONNX_FILE_NAME}")
+      - name: ONNX 转 RKNN
+        run: |
+          set -euxo pipefail
 
-      print("输入信息:")
-      for inp in model.graph.input:
-          dims = []
-          for d in inp.type.tensor_type.shape.dim:
-              dims.append(d.dim_value)
-          print(inp.name, dims)
+          read -r -a mean_arr <<< "${{ github.event.inputs.input_mean }}"
+          read -r -a std_arr <<< "${{ github.event.inputs.input_std }}"
 
-      print("输出信息:")
-      for out in model.graph.output:
-          print(out.name)
-      EOF
+          cmd=(
+            python rknn_convert.py
+            --onnx_path "${ONNX_DOWNLOAD_DIR}/${{ github.event.inputs.onnx_file_name }}"
+            --rknn_path "${RKNN_OUTPUT_DIR}/${{ github.event.inputs.rknn_file_name }}"
+            --target_platform "${{ github.event.inputs.target_chip }}"
+            --quantization "${{ github.event.inputs.quantization }}"
+            --input_w "${{ github.event.inputs.input_w }}"
+            --input_h "${{ github.event.inputs.input_h }}"
+            --input_mean "${mean_arr[@]}"
+            --input_std "${std_arr[@]}"
+          )
 
-  # 如果仓库有 rknn_convert.py
-  - name: ONNX转RKNN
-    run: |
-      python rknn_convert.py \
-        --onnx_path "${ONNX_DOWNLOAD_DIR}/${ONNX_FILE_NAME}" \
-        --rknn_path "${RKNN_OUTPUT_DIR}/${RKNN_FILE_NAME}" \
-        --target_platform "${TARGET_CHIP}" \
-        --input_w "${INPUT_W}" \
-        --input_h "${INPUT_H}" \
-        --input_mean ${INPUT_MEAN} \
-        --input_std ${INPUT_STD}
+          if [[ "${{ github.event.inputs.quantization }}" == "int8" ]]; then
+            cmd+=(--dataset "${{ github.workspace }}/dataset.txt")
+          fi
 
-  - name: 查看输出
-    run: |
-      ls -lah "${RKNN_OUTPUT_DIR}"
+          "${cmd[@]}"
 
-  - name: 上传RKNN
-    uses: actions/upload-artifact@v4
-    with:
-      name: rknn_model
-      path: ${{ env.RKNN_OUTPUT_DIR }}
-      retention-days: 30
-```
+      - name: 上传 RKNN 模型
+        uses: actions/upload-artifact@v4
+        with:
+          name: rknn-converted-model
+          path: ${{ env.RKNN_OUTPUT_DIR }}
+          retention-days: 30
