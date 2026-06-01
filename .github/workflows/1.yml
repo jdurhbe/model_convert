@@ -1,4 +1,5 @@
 name: 自动下载ONNX转RKNN（纯转换）
+
 on:
   workflow_dispatch:
 
@@ -10,8 +11,13 @@ env:
   RKNN_FILE_NAME: converted.rknn                            # 生成的RKNN文件名
   # 转换核心参数（按需修改）
   TARGET_CHIP: rk3588                                       # 目标芯片：rk3588/rk3566/rk3568
-  QUANTIZATION: fp16                                        # 量化方式：fp16/int8
-  INPUT_SIZE: 416 416                                      # 模型输入尺寸（宽 高）
+  QUANTIZATION: fp16                                        # 量化方式：fp16 / int8
+  INPUT_W: 416                                              # 模型输入宽度
+  INPUT_H: 416                                              # 模型输入高度
+  INPUT_MEAN: "0 0 0"                                      # 均值（空格分隔）
+  INPUT_STD: "255 255 255"                                 # 标准差（空格分隔）
+  # int8量化专用（仅当QUANTIZATION=int8时必须提供）
+  DATASET_TXT: ""                                           # 可留空，留空时脚本会生成占位文件（需手动替换真实路径）
 
 jobs:
   convert_rknn:
@@ -36,23 +42,34 @@ jobs:
           sudo apt update
           sudo apt install -y libgl1-mesa-glx libglib2.0-0 gcc g++ wget
 
-      - name: 安装RKNN转换依赖（仅转换所需，无多余包）
+      - name: 安装RKNN转换依赖
         run: |
           pip install --upgrade pip
           pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
             numpy opencv-python onnx rknn-toolkit2==1.6.0
 
-      # ========== 核心：自动下载ONNX模型到自定义路径 ==========
-      - name: 下载GitHub Releases中的ONNX模型（国内加速）
+      # ========== 自动下载ONNX模型（请替换URL）==========
+      - name: 下载GitHub Releases中的ONNX模型
         run: |
-          # ghproxy加速前缀，解决境外链接无法访问问题
           wget https://github.com/jdurhbe/model_convert/releases/download/onnx/HJ0320V8_256.onnx \
             -O $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
-          # 验证下载完整性（日志中会显示文件大小）
           echo "下载完成，文件信息："
           ls -lh $ONNX_DOWNLOAD_DIR/$ONNX_FILE_NAME
 
-      # ========== 纯ONNX转RKNN ==========
+      # ========== 准备int8量化所需的dataset.txt（仅当需要时） ==========
+      - name: 准备int8校准数据集
+        if: env.QUANTIZATION == 'int8' && env.DATASET_TXT == ''
+        run: |
+          echo "警告：未提供DATASET_TXT，将生成占位文件，请替换为真实图片路径！"
+          echo "./placeholder.jpg" > ${{ github.workspace }}/dataset.txt
+          # 你可以在此步骤中用其他方式生成真正的dataset.txt，例如：
+          # find /path/to/images -name "*.jpg" > dataset.txt
+      - name: 使用自定义dataset.txt
+        if: env.QUANTIZATION == 'int8' && env.DATASET_TXT != ''
+        run: |
+          cp $DATASET_TXT ${{ github.workspace }}/dataset.txt
+
+      # ========== 执行ONNX到RKNN转换 ==========
       - name: 执行ONNX到RKNN转换
         run: |
           python rknn_convert.py \
@@ -60,9 +77,11 @@ jobs:
             --rknn_path $RKNN_OUTPUT_DIR/$RKNN_FILE_NAME \
             --target_platform $TARGET_CHIP \
             --quantization $QUANTIZATION \
-            --input_size $INPUT_SIZE \
-            --input_mean 0 0 0 \
-            --input_std 255 255 255
+            --input_w $INPUT_W \
+            --input_h $INPUT_H \
+            --input_mean $INPUT_MEAN \
+            --input_std $INPUT_STD \
+            ${DATASET_TXT:+--dataset ${{ github.workspace }}/dataset.txt}
 
       - name: 上传最终RKNN模型
         uses: actions/upload-artifact@v4
