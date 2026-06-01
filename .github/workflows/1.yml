@@ -23,6 +23,17 @@ jobs:
       - name: 拉取仓库转换脚本
         uses: actions/checkout@v4
 
+      - name: 列出仓库文件（调试）
+        run: |
+          echo "当前目录: $(pwd)"
+          ls -la
+          if [ -f rknn_convert.py ]; then
+            echo "✓ rknn_convert.py 存在"
+          else
+            echo "✗ rknn_convert.py 不存在"
+            exit 1
+          fi
+
       - name: 初始化自定义目录
         run: |
           mkdir -p $ONNX_DOWNLOAD_DIR
@@ -38,7 +49,7 @@ jobs:
           sudo apt update
           sudo apt install -y libgl1 libglib2.0-0 gcc g++ wget
 
-      - name: 安装RKNN转换依赖（使用可用版本2.3.2）
+      - name: 安装RKNN转换依赖
         run: |
           pip install --upgrade pip
           pip install -i https://pypi.tuna.tsinghua.edu.cn/simple \
@@ -53,12 +64,7 @@ jobs:
       - name: 准备int8校准数据集
         if: env.QUANTIZATION == 'int8' && env.DATASET_TXT == ''
         run: |
-          echo "警告：未提供DATASET_TXT，生成占位文件（int8量化需要真实图片）"
           echo "./placeholder.jpg" > ${{ github.workspace }}/dataset.txt
-      - name: 使用自定义dataset.txt
-        if: env.QUANTIZATION == 'int8' && env.DATASET_TXT != ''
-        run: |
-          cp $DATASET_TXT ${{ github.workspace }}/dataset.txt
 
       - name: 执行ONNX到RKNN转换
         run: |
